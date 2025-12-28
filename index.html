@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>數學冒險遊戲</title>
+<style>
+    body {
+        font-family: "Microsoft JhengHei", sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        background-color: #333;
+        overflow: hidden; /* 防止捲軸出現 */
+    }
+
+    #game-stage {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        background-image: url('https://picsum.photos/1920/1080');
+        background-size: cover;
+        background-position: center;
+        overflow: hidden;
+    }
+
+    /* === 角色共用設定 === */
+    .character {
+        position: absolute;
+        bottom: 135px;
+        background-repeat: no-repeat;
+        transform-origin: bottom center;
+        transform: scale(1.5);
+    }
+
+    /* === 對話框與輸入框樣式 === */
+    .dialogue-box {
+        position: absolute;
+        background: rgba(255, 255, 255, 0.95);
+        border: 3px solid #4a4a4a;
+        border-radius: 15px;
+        padding: 15px;
+        font-size: 18px;
+        font-weight: bold;
+        color: #333;
+        display: none; /* 預設隱藏 */
+        z-index: 100;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        white-space: nowrap;
+        pointer-events: none; /* 讓滑鼠點擊穿透 */
+    }
+
+    .dialogue-box::after {
+        content: '';
+        position: absolute;
+        bottom: -10px;
+        left: 50%;
+        transform: translateX(-50%);
+        border-width: 10px 10px 0;
+        border-style: solid;
+        border-color: #4a4a4a transparent transparent transparent;
+    }
+
+    /* 角色1的輸入框容器 */
+    #input-container {
+        position: absolute;
+        bottom: 280px; /* 在角色頭上 */
+        display: none;
+        z-index: 101;
+        transform: translateX(-50%); /* 水平置中 */
+        text-align: center;
+    }
+
+    #user-answer {
+        width: 80px;
+        padding: 5px;
+        font-size: 16px;
+        border: 2px solid #007bff;
+        border-radius: 5px;
+        outline: none;
+        box-shadow: 0 0 5px rgba(0,123,255,0.5);
+    }
+
+    /* === 角色個別設定 === */
+    
+    /* 角色 1 (玩家) */
+    #char1 {
+        left: 150px;
+        width: 43px;
+        height: 95px;
+        background-image: url('1/stop/standall.png');
+        animation: char1-idle 0.5s steps(5) infinite;
+        transition: transform 0.1s; 
+    }
+    #char1.facing-left { transform: scale(-1.5, 1.5); }
+    #char1.is-walking {
+        width: calc(762px / 13);
+        background-image: url('1/walk/walkall.png');
+        animation: char1-walk 1.5s steps(13) infinite;
+    }
+    #char1.is-ducking {
+        width: calc(615px / 10);
+        height: 96px;
+        background-image: url('1/dawn/dawnall.png');
+        animation: char1-duck 1s steps(10) infinite;
+    }
+
+    /* 角色 2 (提問者 NPC) */
+    #char2 {
+        right: 100px;
+        width: calc(499px / 12); 
+        height: 95px;
+        background-image: url('2/stop/standall3.png');
+        animation: char2-idle 1s steps(12) infinite;
+    }
+
+    /* 角色 3 (提醒者 NPC) */
+    #char3 {
+        left: 50px;
+        width: calc(888px / 12); 
+        height: 114px;
+        background-image: url('3/1all.png');
+        animation: char3-idle 1s steps(12) infinite;
+    }
+
+    /* 動畫 Keyframes */
+    @keyframes char1-idle { from { background-position: 0px 0px; } to { background-position: -215px 0px; } }
+    @keyframes char1-walk { from { background-position: 0px 0px; } to { background-position: -762px 0px; } }
+    @keyframes char1-duck { from { background-position: 0px 0px; } to { background-position: -615px 0px; } }
+    @keyframes char2-idle { from { background-position: 0px 0px; } to { background-position: -499px 0px; } }
+    @keyframes char3-idle { from { background-position: 0px 0px; } to { background-position: -888px 0px; } }
+
+</style>
+</head>
+<body>
+
+<div id="game-stage">
+    <!-- 角色 1 (玩家) 與 輸入框 -->
+    <div id="input-container">
+        <input type="number" id="user-answer" placeholder="答案?">
+    </div>
+    <div id="char1" class="character"></div>
+    
+    <!-- 角色 2 (提問者) 與 對話框 -->
+    <div id="dialogue-char2" class="dialogue-box" style="bottom: 280px; right: 80px;">
+        <!-- 題目會顯示在這裡 -->
+    </div>
+    <div id="char2" class="character"></div>
+
+    <!-- 角色 3 (提醒者) 與 對話框 -->
+    <div id="dialogue-char3" class="dialogue-box" style="bottom: 280px; left: 30px;">
+        <!-- 解析會顯示在這裡 -->
+    </div>
+    <div id="char3" class="character"></div>
+</div>
+
+<script>
+    const char1 = document.getElementById('char1');
+    const inputContainer = document.getElementById('input-container');
+    const userAnswerInput = document.getElementById('user-answer');
+    const dialogueChar2 = document.getElementById('dialogue-char2');
+    const dialogueChar3 = document.getElementById('dialogue-char3');
+
+    let char1Pos = 150; 
+    const speed = 10;
+    
+    // === 數學題目系統 ===
+    let currentMath = {
+        question: "",
+        answer: 0,
+        explanation: ""
+    };
+
+    function generateMathQuestion() {
+        const num1 = Math.floor(Math.random() * 20) + 1;
+        const num2 = Math.floor(Math.random() * 20) + 1;
+        const isAddition = Math.random() > 0.5;
+
+        if (isAddition) {
+            currentMath.question = `${num1} + ${num2} = ?`;
+            currentMath.answer = num1 + num2;
+            currentMath.explanation = `提示：${num1} 加上 ${num2} 等於 ${num1 + num2}`;
+        } else {
+            const max = Math.max(num1, num2);
+            const min = Math.min(num1, num2);
+            currentMath.question = `${max} - ${min} = ?`;
+            currentMath.answer = max - min;
+            currentMath.explanation = `提示：${max} 減去 ${min} 等於 ${max - min}`;
+        }
+
+        dialogueChar2.innerText = "請問： " + currentMath.question;
+        dialogueChar3.innerText = currentMath.explanation;
+        userAnswerInput.value = "";
+    }
+
+    generateMathQuestion();
+
+    // === 音效系統 (加強版：防止錯誤卡死程式) ===
+    let isAudioStarted = false;
+    function initAudio() {
+        if (isAudioStarted) return;
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContext) return; // 瀏覽器不支援，直接返回
+            
+            const audioCtx = new AudioContext();
+            const frequencies = [261.63, 329.63, 392.00, 493.88]; 
+            
+            frequencies.forEach((freq) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = freq;
+                gain.gain.value = 0.02;
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+            });
+            isAudioStarted = true;
+        } catch (e) {
+            console.warn("音效啟動失敗 (不影響遊戲進行):", e);
+            isAudioStarted = true; // 標記為已嘗試，避免重複報錯
+        }
+    }
+
+    // === 互動偵測系統 ===
+    function checkInteraction() {
+        const rect1 = char1.getBoundingClientRect();
+        const rect2 = document.getElementById('char2').getBoundingClientRect();
+        const rect3 = document.getElementById('char3').getBoundingClientRect();
+
+        const threshold = 250; 
+
+        const distToChar2 = Math.abs(rect1.x - rect2.x);
+        const distToChar3 = Math.abs(rect1.x - rect3.x);
+
+        // 1. 與角色 2 (提問者) 的互動
+        if (distToChar2 < threshold) {
+            dialogueChar2.style.display = 'block';
+            inputContainer.style.display = 'block';
+            inputContainer.style.left = (char1Pos + 30) + 'px'; 
+        } else {
+            dialogueChar2.style.display = 'none';
+            inputContainer.style.display = 'none';
+        }
+
+        // 2. 與角色 3 (提醒者) 的互動
+        if (distToChar3 < threshold) {
+            dialogueChar3.style.display = 'block';
+        } else {
+            dialogueChar3.style.display = 'none';
+        }
+    }
+
+    // 監聽玩家輸入答案
+    userAnswerInput.addEventListener('input', (e) => {
+        if (parseInt(e.target.value) === currentMath.answer) {
+            alert("答對了！太棒了！(產生下一題)");
+            generateMathQuestion();
+            userAnswerInput.blur(); // 答對後自動取消聚焦，方便繼續移動
+        }
+    });
+
+    // 防止輸入框卡住移動：按下 Enter 或 Esc 取消聚焦
+    userAnswerInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === 'Escape') {
+            userAnswerInput.blur();
+        }
+        e.stopPropagation(); // 防止按鍵事件傳遞給角色移動
+    });
+
+    // === 移動控制 ===
+    document.addEventListener('keydown', (event) => {
+        // 如果正在輸入答案，不要移動角色
+        if (document.activeElement === userAnswerInput) return;
+
+        initAudio();
+        let isMoving = false;
+        
+        if (event.key === 'ArrowLeft') {
+            char1Pos -= speed;
+            char1.classList.add('facing-left');
+            isMoving = true;
+        } else if (event.key === 'ArrowRight') {
+            char1Pos += speed;
+            char1.classList.remove('facing-left');
+            isMoving = true;
+        } else if (event.key === 'ArrowDown') {
+            char1.classList.add('is-ducking');
+        }
+
+        if (isMoving) {
+            char1.classList.add('is-walking');
+            
+            // 邊界限制
+            const stageWidth = window.innerWidth;
+            const walkingWidth = 762 / 13;
+            if (char1Pos < 0) char1Pos = 0;
+            if (char1Pos > stageWidth - walkingWidth) char1Pos = stageWidth - walkingWidth;
+            
+            char1.style.left = char1Pos + 'px';
+            
+            checkInteraction();
+        }
+    });
+
+    document.addEventListener('keyup', (event) => {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            char1.classList.remove('is-walking');
+        } else if (event.key === 'ArrowDown') {
+            char1.classList.remove('is-ducking');
+        }
+    });
+    
+    // 初始化檢查
+    checkInteraction();
+
+</script>
+
+</body>
+</html>
